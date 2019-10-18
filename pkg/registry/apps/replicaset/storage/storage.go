@@ -20,6 +20,8 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
+	e "errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -209,7 +211,27 @@ func (r *ScaleREST) Update(ctx context.Context, name string, objInfo rest.Update
 	rs.ResourceVersion = scale.ResourceVersion
 
 	rs.Spec.Replicas = scale.Spec.Replicas
-	rs.ObjectMeta.SetManagedFields(append(rs.ObjectMeta.GetManagedFields(), metav1.ManagedFieldsEntry{
+	//TODO maria; one option is to remove everything here that has fieldsV1: > f:metadata: > replicas yada yada first, and then append as it already does below.
+
+	managedFields := rs.ObjectMeta.GetManagedFields()
+	//is there already an owner for spec.replicas?
+
+	for index, entry := range managedFields {
+		entryMap := make(map[string]interface{})
+		err := json.Unmarshal(entry.FieldsV1.Raw, entryMap)
+
+		if err != nil {
+			return nil, false, errors.NewInternalError(e.New("can't unmarshal"))
+		}
+
+		if pathExists(entryMap, []string{"spec", "replicas"}) {
+			//you could maybe be a bit smarter and say, if it's the one I'm looking for then keep things as they are /shrug
+			managedFields = append(managedFields[:index], managedFields[index+1:]...)
+		}
+	}
+
+	//then either way, append the new manager
+	rs.ObjectMeta.SetManagedFields(append(managedFields, metav1.ManagedFieldsEntry{
 		Manager:    replicasFieldManager,
 		Operation:  metav1.ManagedFieldsOperationApply,
 		FieldsType: "FieldsV1",
@@ -236,6 +258,29 @@ func (r *ScaleREST) Update(ctx context.Context, name string, objInfo rest.Update
 		return nil, false, errors.NewBadRequest(fmt.Sprintf("%v", err))
 	}
 	return newScale, false, err
+}
+
+func pathExists(data map[string]interface{}, path []string) bool {
+	currentPath := path
+	currentData := data
+
+	for {
+		if len(currentPath) < 1 {
+			return true
+		}
+
+		value, ok := currentData["f:"+currentPath[0]]
+		if !ok {
+			return false
+		}
+
+		currentPath = currentPath[1:]
+		currentData, ok = value.(map[string]interface{})
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func toScaleCreateValidation(f rest.ValidateObjectFunc) rest.ValidateObjectFunc {

@@ -373,7 +373,8 @@ func testScalingUsingScaleSubresource(t *testing.T, c clientset.Interface, rs *a
 	}
 
 	mf := (*newRS).ObjectMeta.GetManagedFields()
-	assertOwnership(t, mf, "this-is-the-cool-field-manager", []string{"spec", "replicas"})
+	// assertOwnership(t, mf, "this-is-the-cool-field-manager", []string{"spec", "replicas"})
+	assertCompleteOwnership(t, mf, "this-is-the-cool-field-manager", []string{"spec", "replicas"})
 }
 
 func getManagedFieldsEntry(managedFields []metav1.ManagedFieldsEntry, fieldManager string) (metav1.ManagedFieldsEntry, error) {
@@ -385,6 +386,16 @@ func getManagedFieldsEntry(managedFields []metav1.ManagedFieldsEntry, fieldManag
 	}
 
 	return metav1.ManagedFieldsEntry{}, fmt.Errorf("Managed field for manager '%s' not found in %v", fieldManager, managedFields)
+}
+
+func assertCompleteOwnership(t *testing.T, managedFields []metav1.ManagedFieldsEntry, fieldManager string, path []string) {
+	if len(managedFields) != 1 {
+		t.Fatalf("not only field manager")
+	}
+
+	if managedFields[0].Manager != fieldManager {
+		t.Fatalf("not expected owner")
+	}
 }
 
 // temporary, to have a nicer target to run the test: `go generate -run test ./test/...`
@@ -850,6 +861,8 @@ func TestReadyAndAvailableReplicas(t *testing.T) {
 		t.Fatalf("Failed to verify number of Replicas, ReadyReplicas and AvailableReplicas of rs %s to be as expected: %v", rs.Name, err)
 	}
 }
+
+func TestRSScaleSubresourceEvictPreviousManager(t *testing.T) {}
 
 func TestRSScaleSubresource(t *testing.T) {
 	s, closeFn, rm, informers, c := rmSetup(t)
